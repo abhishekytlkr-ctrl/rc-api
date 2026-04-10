@@ -1,37 +1,84 @@
-from http.server import BaseHTTPRequestHandler
+import requests
+import uuid
 import json
-import random
-from urllib.parse import urlparse, parse_qs
 
-RTO_DATA = {
-    "BR01": "Patna",
-    "WB26": "West Bengal",
-    "DL01": "Delhi",
-    "MH12": "Pune",
-    "UP32": "Lucknow"
-}
-
-class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        query = parse_qs(urlparse(self.path).query)
-        rc = query.get("rc", [""])[0].upper()
+def handler(request):
+    try:
+        rc = request.query.get("rc")
 
         if not rc:
-            self.send_response(400)
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": "RC number required"}).encode())
-            return
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "RC required"})
+            }
 
-        response = {
-            "status": "success",
-            "vehicle_number": rc,
-            "owner_name": random.choice(["Ravi Kumar", "Amit Singh", "Abhishek Kumar"]),
-            "vehicle_model": random.choice(["Activa", "i20", "Swift"]),
-            "fuel_type": random.choice(["Petrol", "Diesel"]),
-            "rto": RTO_DATA.get(rc[:4], "Unknown")
+        rc = rc.strip().upper()
+
+        payload = {
+            "regNo": rc,
+            "sessionid": str(uuid.uuid4())
         }
 
-        self.send_response(200)
-        self.send_header("Content-type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps(response).encode())
+        headers = {
+            "Content-Type": "application/json",
+            "Origin": "https://www.91wheels.com",
+            "Referer": "https://www.91wheels.com/",
+            "User-Agent": "Mozilla/5.0"
+        }
+
+        res = requests.post(
+            "https://api1.91wheels.com/api/v1/third/rc-detail",
+            json=payload,
+            headers=headers
+        )
+
+        data = res.json().get("data", {})
+
+        # 🔥 Clean structured response
+        result = {
+            "vehicle_number": rc,
+            "owner": data.get("ownerName"),
+            "father_name": data.get("fatherName"),
+            "address": data.get("presentAddress"),
+            "vehicle": {
+                "model": data.get("makerModel"),
+                "fuel": data.get("fuelType"),
+                "color": data.get("color"),
+                "class": data.get("vehicleClass"),
+                "body_type": data.get("bodyType")
+            },
+            "registration": {
+                "date": data.get("regDate"),
+                "rto": data.get("registeredAt"),
+                "state": data.get("state")
+            },
+            "insurance": {
+                "company": data.get("insuranceCompany"),
+                "expiry": data.get("insuranceUpto")
+            },
+            "technical": {
+                "engine": data.get("engineNumber"),
+                "chassis": data.get("chassisNumber"),
+                "cc": data.get("cubicCapacity"),
+                "norms": data.get("emissionNorms")
+            },
+            "finance": {
+                "financer": data.get("financer"),
+                "blacklist": data.get("blacklistStatus")
+            }
+        }
+
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json"},
+            "body": json.dumps({
+                "success": True,
+                "data": result
+            })
+        }
+
+    except Exception as e:
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": str(e)})
+        }
